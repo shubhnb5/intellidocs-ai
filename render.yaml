@@ -1,0 +1,92 @@
+# Render Blueprint — deploys the full stack as five free-tier services.
+# See DEPLOYMENT.md for the full walkthrough (first-deploy steps, which
+# env vars you fill in by hand and why, and known rough edges). The short
+# version: free-tier services here have an ephemeral filesystem, so
+# Qdrant's vector index and the SQLite database reset on every restart,
+# redeploy, or spin-down-from-15-minutes-idle. That's a deliberate,
+# zero-cost trade-off for a portfolio demo, not an oversight -- upgrading
+# to real persistence later is a `plan: free` -> `plan: starter` change
+# plus a `disk:` block on the backend service, not an architecture change.
+#
+# Two specific things in this file I could not verify against a live
+# Render account (no Docker or Render access from this environment) -- see
+# DEPLOYMENT.md's "Rough edges" section before assuming a red first deploy
+# means the whole approach is wrong:
+#   1. How Render routes to the `qdrant` service's port, since it's a bare
+#      pulled image (no Dockerfile for Render to read an EXPOSE from).
+#   2. Whether `envVars` on a `runtime: static` service are actually
+#      injected during that service's build step (needed for
+#      VITE_API_BASE_URL, which Vite bakes in at build time).
+services:
+  - type: pserv
+    name: qdrant
+    runtime: image
+    image:
+      url: docker.io/qdrant/qdrant:latest
+    plan: free
+
+  - type: keyvalue
+    name: redis
+    plan: free
+    ipAllowList: [] # only other services on this Blueprint need to reach it
+
+  - type: pserv
+    name: mcp-server
+    runtime: docker
+    rootDir: mcp-server
+    dockerfilePath: mcp-server/Dockerfile
+    dockerContext: mcp-server
+    plan: free
+    envVars:
+      # Render's private services are reachable by other services on the
+      # same Blueprint via their `name` as hostname -- same convention as
+      # docker-compose.yml, which is why this line matches it exactly.
+      - key: BACKEND_API_URL
+        value: http://backend:8000
+      - key: INTERNAL_API_KEY
+        sync: false # must match the backend service's INTERNAL_API_KEY exactly
+
+  - type: web
+    name: backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    envVars:
+      - key: QDRANT_URL
+        value: http://qdrant:6333
+      - key: MCP_SERVER_URL
+        value: http://mcp-server:8001
+      - key: REDIS_URL
+        fromService:
+          name: redis
+          type: keyvalue
+          property: connectionString
+      # No DATABASE_URL override: SQLite on the container's own ephemeral
+      # filesystem is exactly the accepted free-tier trade-off above.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: INTERNAL_API_KEY
+        sync: false # must match the mcp-server service's INTERNAL_API_KEY exactly
+      - key: CORS_ALLOW_ORIGINS
+        sync: false # fill in after first deploy -- see DEPLOYMENT.md
+
+  - type: web
+    name: frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false # fill in after first deploy -- see DEPLOYMENT.md
+    routes:
+      # SPA fallback: react-router-dom's BrowserRouter means /login is a
+      # real browser path with no matching file, so a direct link or a
+      # hard refresh needs this rewrite instead of a 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html
