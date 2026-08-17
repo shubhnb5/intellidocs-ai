@@ -3,3 +3,32 @@ uvicorn[standard]>=0.32
 pydantic>=2.9
 pydantic-settings>=2.6
 loguru>=0.7
+python-multipart>=0.0.12
+
+# Document ingestion (Phase 2)
+qdrant-client>=1.11
+fastembed>=0.4
+pypdf>=5.0
+python-docx>=1.1
+langchain-text-splitters>=0.3
+
+# LLM (Phase 3)
+anthropic>=0.40
+
+# NLP + relational store (Phase 4)
+# After installing, download the spaCy model: python -m spacy download en_core_web_sm
+spacy>=3.7
+sqlalchemy>=2.0
+
+# Multi-agent orchestration + MCP client (Phase 6)
+langgraph>=1.2
+# v2 SDK (client-only usage here — no [cli] extra needed on the backend)
+mcp>=2.0
+# Used directly by the MCP client and the health check's MCP-reachability probe
+httpx>=0.27
+
+# Auth + caching/rate limiting (Phase 8)
+pyjwt>=2.9
+bcrypt>=4.2
+redis>=5.0
+email-validator>=2.2  # pydantic's EmailStr needs this installed explicitly

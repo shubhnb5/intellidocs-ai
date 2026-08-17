@@ -11,6 +11,9 @@ def test_health_check_returns_ok():
     body = response.json()
     assert body["status"] == "ok"
     assert "app_name" in body
+    assert body["qdrant"] in ("ok", "unreachable")
+    assert body["mcp_server"] in ("ok", "unreachable")
+    assert body["redis"] == "ok"  # fake_redis (conftest.py, autouse) is always reachable
 
 
 def test_response_carries_request_id_header():
