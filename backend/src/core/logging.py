@@ -28,6 +28,11 @@ def _inject_request_id(record: dict) -> None:
 def configure_logging(*, debug: bool = False) -> None:
     logger.remove()  # drop loguru's default stderr handler so we control format
     logger.configure(patcher=_inject_request_id)
+    # Windows' default console codepage can't encode the emoji in loguru's
+    # serialized log-level icons -- force UTF-8 so logging itself doesn't
+    # crash on every request.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     logger.add(
         sys.stdout,
         serialize=True,  # emit one JSON object per line

@@ -1,0 +1,87 @@
+# Full local stack: Qdrant + Redis (infra) plus the three application
+# services (backend, mcp-server, frontend), all on one Docker network.
+#
+# First time:
+#   cp backend/.env.example backend/.env
+#   cp mcp-server/.env.example mcp-server/.env
+#   Fill in ANTHROPIC_API_KEY (backend/.env) at minimum, and set matching
+#   JWT_SECRET_KEY / INTERNAL_API_KEY values across both files.
+#
+# Usage: docker compose up -d --build
+#   Frontend:    http://localhost:5173
+#   Backend:     http://localhost:8000/docs
+#   MCP server:  http://localhost:8001/health
+#
+# The QDRANT_URL / REDIS_URL / MCP_SERVER_URL / DATABASE_URL values in your
+# .env files are for running each service directly on the host
+# (localhost:PORT) -- see each service's own README/.env.example. Inside
+# this Compose network, containers reach each other by service name
+# instead, so the `environment:` blocks below override just those keys on
+# top of whatever's in .env -- one .env file works for both setups.
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333" # REST API
+      - "6334:6334" # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mcp-server:
+    build: ./mcp-server
+    env_file: ./mcp-server/.env
+    environment:
+      BACKEND_API_URL: http://backend:8000
+    ports:
+      - "8001:8001"
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
+      MCP_SERVER_URL: http://mcp-server:8001
+      # SQLite lives on a named volume, not the container's writable layer,
+      # so uploaded-document metadata survives `docker compose up` restarts
+      # (though not a `down -v`, which drops volumes on purpose).
+      DATABASE_URL: sqlite:////data/intellidocs.db
+    volumes:
+      - backend_data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Must be reachable from the browser running the built bundle, not
+        # from inside this Compose network -- see frontend/Dockerfile's
+        # comment on this ARG for why that distinction matters here.
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  qdrant_data:
+  redis_data:
+  backend_data:
